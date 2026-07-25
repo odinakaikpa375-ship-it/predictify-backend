@@ -40,6 +40,46 @@ components:
             - code
       required:
         - error
+    GlobalLeaderboardEntry:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: Internal user UUID
+        stellar_address:
+          type: string
+          description: User's Stellar public key (G…)
+        total_predictions:
+          type: integer
+          minimum: 0
+          description: Total predictions placed across all markets
+        correct_predictions:
+          type: integer
+          minimum: 0
+          description: Predictions whose outcome matched the resolved market outcome
+        accuracy_percentage:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Accuracy as a percentage (0–100), rounded to 2 d.p.
+        total_markets:
+          type: integer
+          minimum: 0
+          description: Number of distinct markets in which the user participated
+        rank:
+          type: integer
+          minimum: 0
+          exclusiveMinimum: true
+          description: 1-based global rank, ordered by accuracy DESC then total_predictions DESC
+      required:
+        - user_id
+        - stellar_address
+        - total_predictions
+        - correct_predictions
+        - accuracy_percentage
+        - total_markets
+        - rank
     DependencyHealth:
       type: object
       properties:
@@ -76,6 +116,75 @@ components:
         - correlationId
         - checkedAt
         - dependencies
+    UsersHealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - down
+        correlationId:
+          type: string
+        checkedAt:
+          type: string
+          format: date-time
+        dependencies:
+          type: object
+          properties:
+            database:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum:
+                    - ok
+                    - down
+                latencyMs:
+                  type: number
+                error:
+                  type: string
+              required:
+                - status
+                - latencyMs
+          required:
+            - database
+      required:
+        - status
+        - correlationId
+        - checkedAt
+        - dependencies
+    JwkKey:
+      type: object
+      properties:
+        kid:
+          type: string
+        alg:
+          type: string
+          enum:
+            - HS256
+        kty:
+          type: string
+          enum:
+            - oct
+        use:
+          type: string
+          enum:
+            - sig
+      required:
+        - kid
+        - alg
+        - kty
+        - use
+    JwksResponse:
+      type: object
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/JwkKey'
+      required:
+        - keys
     ChallengeResponse:
       type: object
       properties:
@@ -581,6 +690,58 @@ components:
         - joinedAt
         - predictions
         - totals
+    PredictionRow:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        marketId:
+          type: string
+        question:
+          type: string
+        outcome:
+          type: string
+        amount:
+          type: string
+        txHash:
+          type: string
+        status:
+          type: string
+          enum: *ref_0
+        result:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        resolutionTime:
+          type: string
+          format: date-time
+      required:
+        - id
+        - marketId
+        - question
+        - outcome
+        - amount
+        - txHash
+        - status
+        - result
+        - createdAt
+        - resolutionTime
+    PredictionsListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PredictionRow'
+        nextCursor:
+          type: string
+          nullable: true
+      required:
+        - data
+        - nextCursor
     FollowResult:
       type: object
       properties:
@@ -914,6 +1075,73 @@ components:
         - indexer
         - rpc
         - checkedAt
+    QuotaRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        quotaType:
+          type: string
+        requestedValue:
+          type: integer
+        reason:
+          type: string
+        status:
+          type: string
+        reviewedBy:
+          type: string
+          nullable: true
+        reviewNotes:
+          type: string
+          nullable: true
+        reviewedAt:
+          type: string
+          nullable: true
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - userId
+        - quotaType
+        - requestedValue
+        - reason
+        - status
+        - reviewedBy
+        - reviewNotes
+        - reviewedAt
+        - createdAt
+        - updatedAt
+    QuotaType:
+      type: string
+      enum:
+        - prediction_limit
+        - daily_prediction_limit
+        - claim_limit
+    CreateQuotaRequest:
+      type: object
+      properties:
+        quotaType:
+          $ref: '#/components/schemas/QuotaType'
+        requestedValue:
+          type: integer
+          minimum: 1
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 1000
+      required:
+        - quotaType
+        - requestedValue
+        - reason
   parameters: {}
 paths:
   /health:
@@ -953,6 +1181,25 @@ paths:
           description: Some dependencies degraded
         '503':
           description: One or more dependencies down
+  /api/users/health:
+    get:
+      operationId: usersHealth
+      tags:
+        - Health
+      summary: User-facing dependency health probe
+      responses:
+        '200':
+          description: User service dependencies are healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsersHealthResponse'
+        '503':
+          description: User service dependency probe failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsersHealthResponse'
   /metrics:
     get:
       operationId: getMetrics
@@ -974,6 +1221,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /.well-known/jwks.json:
+    get:
+      operationId: getJwks
+      tags:
+        - JWKS
+      summary: JSON Web Key Set endpoint
+      description: >-
+        Returns the JSON Web Key Set containing metadata for all available JWT signing keys. Follows RFC 7517 (JWK) and
+        RFC 7513 (JWKS) where applicable, adapted for HMAC-based signing (HS256). The actual secret values are never
+        exposed - only key metadata is returned.
+      responses:
+        '200':
+          description: JWKS response with key metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JwksResponse'
   /api/auth/challenge:
     post:
       operationId: authChallenge
@@ -985,6 +1249,10 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ChallengeRequest'
+            examples:
+              challengeRequest:
+                value:
+                  stellarAddress: GABC1234567890DEFGHIJKLMNOPQRSTUVWX
       responses:
         '201':
           description: Challenge issued
@@ -992,6 +1260,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChallengeResponse'
+              examples:
+                challengeIssued:
+                  value:
+                    nonce: challenge-nonce-001
+                    expiresAt: '2026-07-25T12:00:00.000Z'
         '400':
           description: Validation error
           content:
@@ -1009,6 +1282,12 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/VerifyRequest'
+            examples:
+              verifyRequest:
+                value:
+                  stellarAddress: GABC1234567890DEFGHIJKLMNOPQRSTUVWX
+                  nonce: challenge-nonce-001
+                  signature: ed25519-signature-hex
       responses:
         '200':
           description: Tokens issued
@@ -1016,6 +1295,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenPair'
+              examples:
+                tokensIssued:
+                  value:
+                    accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJnb29nbGUtdXNlcjEifQ.signature
+                    refreshToken: refresh-token-001
         '400':
           description: Validation error
           content:
@@ -1039,6 +1323,10 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/RefreshRequest'
+            examples:
+              refreshTokenRequest:
+                value:
+                  refreshToken: refresh-token-001
       responses:
         '200':
           description: New token pair
@@ -1046,6 +1334,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenPair'
+              examples:
+                refreshedTokens:
+                  value:
+                    accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJnb29nbGUtdXNlcjEifQ.signature
+                    refreshToken: refresh-token-002
         '400':
           description: Missing token
           content:
@@ -1075,6 +1368,10 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/RefreshRequest'
+            examples:
+              logoutRequest:
+                value:
+                  refreshToken: refresh-token-001
       responses:
         '204':
           description: Logged out
@@ -1942,23 +2239,22 @@ paths:
           description: Current user profile
           content:
             application/json:
-                schema:
-                  type: object
-                  properties:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/CurrentUserProfile'
+                required:
+                  - data
+              examples:
+                currentUser:
+                  value:
                     data:
-                      $ref: '#/components/schemas/CurrentUserProfile'
-                  required:
-                    - data
-                examples:
-                  currentUser:
-                    summary: Example authenticated user profile
-                    value:
-                      data:
-                        stellarAddress: GCFXExampleUser1111111111111111111111111111
-                        createdAt: '2026-07-01T12:34:56.000Z'
-                        totals:
-                          prediction_count: 42
-                          claim_count: 3
+                      stellarAddress: GABC1234567890DEFGHIJKLMNOPQRSTUVWX
+                      createdAt: '2026-06-27T12:00:00.000Z'
+                      totals:
+                        prediction_count: 2
+                        claim_count: 0
         '401':
           description: Unauthorized
           content:
@@ -2016,14 +2312,13 @@ paths:
                   - nextCursor
               examples:
                 samplePage:
-                  summary: Example predictions page
                   value:
                     data:
-                      - id: '11111111-1111-4111-8111-111111111111'
-                        marketId: 'market-abc-123'
-                        status: pending
-                        createdAt: '2026-07-01T12:00:00.000Z'
-                    nextCursor: null
+                      - id: 11111111-1111-1111-1111-111111111111
+                        marketId: market-abc-123
+                        status: confirmed
+                        createdAt: '2026-06-27T12:00:00.000Z'
+                    nextCursor: djF8MjR8...
         '400':
           description: Invalid address
           content:
@@ -2060,22 +2355,21 @@ paths:
                     $ref: '#/components/schemas/UserProfile'
                 required:
                   - data
-                examples:
-                  publicProfile:
-                    summary: Example public user profile
-                    value:
-                      data:
-                        id: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'
-                        stellarAddress: GCFXExampleUser2222222222222222222222
-                        joinedAt: '2025-12-15T09:00:00.000Z'
-                        predictions:
-                          - id: '22222222-2222-4222-8222-222222222222'
-                            marketId: 'market-def-456'
-                            status: confirmed
-                            createdAt: '2026-01-02T10:00:00.000Z'
-                        totals:
-                          prediction_count: 7
-                          claim_count: 1
+              examples:
+                publicProfile:
+                  value:
+                    data:
+                      id: 22222222-2222-2222-2222-222222222222
+                      stellarAddress: GXYZ1234567890ABCDEFGHIJKLMNOPQRSTUV
+                      joinedAt: '2025-01-01T12:00:00.000Z'
+                      predictions:
+                        - id: 33333333-3333-3333-3333-333333333333
+                          marketId: market-def-456
+                          status: won
+                          createdAt: '2026-06-27T12:00:00.000Z'
+                      totals:
+                        prediction_count: 1
+                        claim_count: 1
         '400':
           description: Invalid Stellar address
           content:
@@ -2088,6 +2382,98 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/predictions:
+    get:
+      operationId: listPredictions
+      tags:
+        - Predictions
+      summary: List the authenticated user’s predictions
+      description: >-
+        Returns a cursor-paginated list of predictions placed by the caller. Sort order is `createdAt DESC, id DESC`.
+        Pass the returned `nextCursor` as `?cursor=` to fetch the next page. `nextCursor` is `null` when no further
+        pages exist.
+      security:
+        - bearerAuth: []
+      parameters:
+        - schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+          required: false
+          name: marketId
+          in: query
+        - schema:
+            type: string
+            enum: *ref_0
+          required: false
+          name: status
+          in: query
+        - schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+          required: false
+          name: outcome
+          in: query
+        - schema:
+            type: string
+          required: false
+          name: cursor
+          in: query
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          required: false
+          name: limit
+          in: query
+      responses:
+        '200':
+          description: Paginated list of predictions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PredictionsListResponse'
+              examples:
+                success:
+                  value:
+                    data:
+                      - id: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                        marketId: market_123
+                        question: Will Bitcoin hit 100k in 2026?
+                        outcome: 'yes'
+                        amount: '50.0000000'
+                        txHash: 8c253240be423ef8109d94101e40a02bc8f297b819f0ff4f4c20b8e906059e66
+                        status: won
+                        result: 'yes'
+                        createdAt: '2026-05-01T12:00:00.000Z'
+                        resolutionTime: '2026-06-01T12:00:00.000Z'
+                    nextCursor: cursor_abc123
+        '400':
+          description: Validation error — invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorBody'
+              examples:
+                invalidLimit:
+                  value:
+                    error:
+                      code: VALIDATION_ERROR
+                      details: Limit must be between 1 and 100
+        '401':
+          description: Unauthorized — missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                unauthorized:
+                  value:
+                    error:
+                      code: UNAUTHORIZED
+                      requestId: req_xyz789
   /api/users/{addr}/follow:
     post:
       operationId: followUser
@@ -2114,14 +2500,13 @@ paths:
                     $ref: '#/components/schemas/FollowResult'
                 required:
                   - data
-                examples:
-                  followCreated:
-                    summary: Example follow creation result
-                    value:
-                      data:
-                        follower: GCFXExampleUser3333333333333333333333
-                        followee: GCFXExampleUser4444444444444444444444
-                        followedAt: '2026-07-10T08:00:00.000Z'
+              examples:
+                followCreated:
+                  value:
+                    data:
+                      follower: GABC1234567890DEFGHIJKLMNOPQRSTUVWX
+                      followee: GXYZ1234567890ABCDEFGHIJKLMNOPQRSTUV
+                      followedAt: '2026-06-27T12:00:00.000Z'
         '400':
           description: Validation error
           content:
@@ -2159,14 +2544,13 @@ paths:
                     $ref: '#/components/schemas/FollowResult'
                 required:
                   - data
-                examples:
-                  followRemoved:
-                    summary: Example follow removal result
-                    value:
-                      data:
-                        follower: GCFXExampleUser3333333333333333333333
-                        followee: GCFXExampleUser4444444444444444444444
-                        followedAt: '2026-07-10T08:00:00.000Z'
+              examples:
+                followRemoved:
+                  value:
+                    data:
+                      follower: GABC1234567890DEFGHIJKLMNOPQRSTUVWX
+                      followee: GXYZ1234567890ABCDEFGHIJKLMNOPQRSTUV
+                      followedAt: '2026-06-27T12:00:00.000Z'
         '400':
           description: Validation error
           content:
@@ -2711,6 +3095,241 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
         '429':
           description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/quota/requests:
+    post:
+      operationId: createQuotaRequest
+      tags:
+        - Quota
+      summary: Submit a quota increase request
+      description: >-
+        Authenticated users can request an increase to their rate limits. Each user may have at most 5 pending requests
+        at a time.
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateQuotaRequest'
+      responses:
+        '201':
+          description: Quota request created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/QuotaRequest'
+                required:
+                  - data
+        '400':
+          description: Validation error or too many pending requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorBody'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorBody'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    get:
+      operationId: listQuotaRequests
+      tags:
+        - Quota
+      summary: List quota requests for the authenticated user
+      description: Returns all quota requests submitted by the authenticated user, newest first.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of quota requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/QuotaRequest'
+                required:
+                  - data
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/leaderboard/global:
+    get:
+      operationId: getGlobalLeaderboard
+      tags:
+        - Leaderboard
+      summary: Global leaderboard across all markets
+      description: >-
+        Returns a paginated leaderboard ranking all users by their prediction accuracy and volume across **every**
+        market on the platform. Results are cached for 5 minutes. Pass `refresh=true` to force an immediate
+        materialized-view refresh (expensive; intended for admin/debug use).
+      parameters:
+        - schema:
+            type: integer
+            minimum: 0
+            exclusiveMinimum: true
+            maximum: 100
+            default: 50
+            description: Maximum entries to return (1–100, default 50)
+          required: false
+          description: Maximum entries to return (1–100, default 50)
+          name: limit
+          in: query
+        - schema:
+            type: integer
+            nullable: true
+            minimum: 0
+            default: 0
+            description: Zero-based row offset for pagination (default 0)
+          required: false
+          description: Zero-based row offset for pagination (default 0)
+          name: offset
+          in: query
+        - schema:
+            type: boolean
+            nullable: true
+            default: false
+            description: When true, triggers REFRESH MATERIALIZED VIEW CONCURRENTLY before querying
+          required: false
+          description: When true, triggers REFRESH MATERIALIZED VIEW CONCURRENTLY before querying
+          name: refresh
+          in: query
+      responses:
+        '200':
+          description: Paginated global leaderboard
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GlobalLeaderboardEntry'
+                  meta:
+                    type: object
+                    properties:
+                      limit:
+                        type: integer
+                      offset:
+                        type: integer
+                      count:
+                        type: integer
+                      refresh:
+                        type: boolean
+                    required:
+                      - limit
+                      - offset
+                      - count
+                      - refresh
+                required:
+                  - data
+                  - meta
+        '400':
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorBody'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/leaderboard/global/user/{stellarAddress}:
+    get:
+      operationId: getGlobalLeaderboardEntry
+      tags:
+        - Leaderboard
+      summary: Get a single user's global leaderboard entry
+      description: >-
+        Looks up the global leaderboard rank and stats for a specific Stellar address. Returns 404 when the address has
+        never placed a prediction.
+      parameters:
+        - schema:
+            type: string
+            description: The user's Stellar public key (G…)
+          required: true
+          description: The user's Stellar public key (G…)
+          name: stellarAddress
+          in: path
+      responses:
+        '200':
+          description: User's global leaderboard entry
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/GlobalLeaderboardEntry'
+                required:
+                  - data
+        '404':
+          description: Address not found on the global leaderboard
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: Internal server error
           content:
             application/json:
               schema:

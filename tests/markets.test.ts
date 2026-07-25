@@ -9,6 +9,7 @@ type MarketRow = {
   status: string;
   resolutionTime: Date;
   version: number;
+  createdAt?: Date;
 };
 
 /**
@@ -16,37 +17,40 @@ type MarketRow = {
  * This replaces the deprecated in-memory stub bypass and ensures tests use the real repository path.
  */
 function createMarketDb(rows: MarketRow[]): Database {
+  // Sort rows by createdAt DESC, id DESC to simulate the cursor pagination order.
+  const sorted = [...rows].sort((a, b) => {
+    const aTime = (a.createdAt ?? a.resolutionTime).getTime();
+    const bTime = (b.createdAt ?? b.resolutionTime).getTime();
+    if (bTime !== aTime) return bTime - aTime; // DESC
+    return b.id.localeCompare(a.id); // id DESC tie-breaker
+  });
+
   return {
     select: jest.fn((_columns?: any) => ({
       from: jest.fn((_table: any) => ({
         where: jest.fn((_condition: any) => ({
           orderBy: jest.fn((_orderByFn: any, ..._rest: any) => ({
-            limit: jest.fn((limitVal: number) => ({
-              offset: jest.fn(async (offsetVal: number) => {
-                return rows.slice(offsetVal, offsetVal + limitVal);
-              }),
-            })),
+            limit: jest.fn(async (limitVal: number) => {
+              // limitVal is limit + 1 (probe row).
+              return sorted.slice(0, limitVal);
+            }),
           })),
-          limit: jest.fn(async (limitVal: number) => {
-            return rows.slice(0, limitVal);
-          }),
         })),
       })),
     })),
     transaction: jest.fn(async (fn: Function) => {
-      // Mock transaction support for tests
       return fn({
         select: jest.fn((_columns?: any) => ({
           from: jest.fn((_table: any) => ({
             where: jest.fn((_condition: any) => ({
-              limit: jest.fn(async (limitVal: number) => rows.slice(0, limitVal)),
+              limit: jest.fn(async (limitVal: number) => sorted.slice(0, limitVal)),
             })),
           })),
         })),
         update: jest.fn((_table: any) => ({
           set: jest.fn((values: any) => ({
             where: jest.fn((_condition: any) => ({
-              returning: jest.fn(async () => [{ ...rows[0], ...values }]),
+              returning: jest.fn(async () => [{ ...sorted[0], ...values }]),
             })),
           })),
         })),
@@ -86,7 +90,52 @@ describe("GET /api/markets", () => {
           resolutionTime: "2026-07-01T00:00:00.000Z",
         },
       ],
+      nextCursor: null,
     });
+  });
+
+  it("returns an ETag header and supports conditional revalidation", async () => {
+    setDbForTests(createMarketDb([
+      {
+        id: "market-1",
+        question: "Will Predictify ship real market reads?",
+        status: "active",
+        resolutionTime: new Date("2026-07-01T00:00:00.000Z"),
+        version: 1,
+      },
+    ]));
+
+    const first = await request(createApp()).get("/api/markets");
+
+    expect(first.status).toBe(200);
+    expect(first.headers["etag"]).toMatch(/^"[0-9a-f]{64}"$/);
+    expect(first.headers["cache-control"]).toBe("no-cache");
+
+    const second = await request(createApp())
+      .get("/api/markets")
+      .set("If-None-Match", first.headers["etag"] as string);
+
+    expect(second.status).toBe(304);
+    expect(second.text).toBe("");
+  });
+
+  it("returns 200 for a stale If-None-Match value", async () => {
+    setDbForTests(createMarketDb([
+      {
+        id: "market-1",
+        question: "Will Predictify ship real market reads?",
+        status: "active",
+        resolutionTime: new Date("2026-07-01T00:00:00.000Z"),
+        version: 1,
+      },
+    ]));
+
+    const res = await request(createApp())
+      .get("/api/markets")
+      .set("If-None-Match", '"000000000000000000000000000000000000000000000000000000000000dead"');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("data");
   });
 
   it("returns empty array when no markets exist", async () => {
@@ -241,9 +290,7 @@ describe("Regression: ensure stub bypass is removed", () => {
         from: jest.fn(() => ({
           where: jest.fn(() => ({
             orderBy: jest.fn(() => ({
-              limit: jest.fn(() => ({
-                offset: jest.fn(async () => null), // Wrong: should be an array
-              })),
+              limit: jest.fn(async () => null), // Wrong: should be an array
             })),
           })),
         })),
@@ -302,9 +349,7 @@ describe("GET /api/markets/tags", () => {
         from: jest.fn(() => ({
           where: jest.fn(() => ({
             orderBy: jest.fn(() => ({
-              limit: jest.fn(() => ({
-                offset: jest.fn(async () => []),
-              })),
+              limit: jest.fn(async () => []),
             })),
           })),
         })),
@@ -330,9 +375,7 @@ describe("GET /api/markets/tags", () => {
         from: jest.fn(() => ({
           where: jest.fn(() => ({
             orderBy: jest.fn(() => ({
-              limit: jest.fn(() => ({
-                offset: jest.fn(async () => []),
-              })),
+              limit: jest.fn(async () => []),
             })),
           })),
         })),

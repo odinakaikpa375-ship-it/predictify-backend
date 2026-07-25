@@ -233,6 +233,19 @@ describe("GET /api/predictions — route", () => {
       expect(res.status).toBe(401);
       expect(mockListPredictions).not.toHaveBeenCalled();
     });
+
+    it("echoes the correlation ID header on a successful response", async () => {
+      authLimit.mockResolvedValue([MOCK_USER_ROW]);
+      mockListPredictions.mockResolvedValueOnce({ data: [], nextCursor: null });
+
+      const res = await request(app)
+        .get(predictionsUrl())
+        .set("Authorization", `Bearer ${validToken()}`)
+        .set("X-Correlation-Id", "predictions-correlation-id");
+
+      expect(res.status).toBe(200);
+      expect(res.headers["x-correlation-id"]).toBe("predictions-correlation-id");
+    });
   });
 
   // ── Query param validation ────────────────────────────────────────────────

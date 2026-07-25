@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import { authenticate } from '../../middleware/auth';
+import { requireAuth } from '../../middleware/requireAuth';
 import { db } from '../../db';
 import { predictions, users } from '../../db/schema';
 import { eq, and } from 'drizzle-orm';
-import { logger } from '../../logging';
+import { logger } from '../../config/logger';
 
 const router = Router();
 
@@ -11,7 +11,7 @@ const router = Router();
  * POST /api/predictions/:id/cancel
  * Cancel an unresolved prediction and refund stake
  */
-router.post('/:id/cancel', authenticate, async (req, res) => {
+router.post('/:id/cancel', requireAuth, async (req, res) => {
   const correlationId = req.headers['x-correlation-id'] || 'unknown';
   const { id } = req.params;
   const userId = req.user.id;

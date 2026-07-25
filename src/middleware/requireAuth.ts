@@ -49,6 +49,17 @@ import { verifyAccessToken } from "../services/jwtService";
 const pool = new Pool({ connectionString: env.DATABASE_URL });
 const db = drizzle(pool);
 
+/**
+ * Closes this module's own pg Pool. Only needed by test suites that exercise
+ * requireAuth/optionalAuth directly against a short-lived database (e.g. a
+ * Testcontainers Postgres instance) — call it in `afterAll` alongside
+ * `closeDb()` so no connection is left open when the container is torn down.
+ * Production code has no reason to call this; the pool lives for the process.
+ */
+export async function closeAuthPool(): Promise<void> {
+  await pool.end();
+}
+
 // ---------------------------------------------------------------------------
 // Internal helper — resolves with req.user value or throws an AppError.
 // Extracted so that both requireAuth and optionalAuth share the same logic.

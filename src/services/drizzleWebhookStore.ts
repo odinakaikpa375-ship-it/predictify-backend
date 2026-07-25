@@ -56,6 +56,39 @@ export class DrizzleWebhookStore implements WebhookStore {
     return (row as WebhookDelivery) ?? null;
   }
 
+  async listDeliveries(cursor: unknown, limit: unknown): Promise<Page<WebhookDelivery>> {
+    const take = clampLimit(limit);
+    const key = decodeCursor(cursor);
+
+    const where = key
+      ? or(
+          lt(webhookDeliveries.createdAt, new Date(key.sortValue)),
+          and(
+            eq(webhookDeliveries.createdAt, new Date(key.sortValue)),
+            lt(webhookDeliveries.id, key.id),
+          ),
+        )
+      : undefined;
+
+    const rows = (await this.db
+      .select()
+      .from(webhookDeliveries)
+      .where(where)
+      .orderBy(desc(webhookDeliveries.createdAt), desc(webhookDeliveries.id))
+      .limit(take + 1)) as WebhookDelivery[];
+
+    const hasMore = rows.length > take;
+    const data = hasMore ? rows.slice(0, take) : rows;
+    const last = data[data.length - 1];
+    return {
+      data,
+      nextCursor:
+        hasMore && last
+          ? encodeCursor({ sortValue: last.createdAt.toISOString(), id: last.id })
+          : null,
+    };
+  }
+
   async updateDelivery(
     id: string,
     patch: Partial<

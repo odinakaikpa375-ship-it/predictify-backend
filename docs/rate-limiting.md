@@ -4,6 +4,11 @@ Public read endpoints (`GET /api/markets`, `GET /api/leaderboard`) are throttled
 per client IP using a sliding-window counter. Authenticated requests that include
 a `Bearer` token bypass the limiter.
 
+Authentication endpoints under `/api/auth` are also rate-limited with a per-identity
+window (default 5 requests per minute) to reduce abuse from repeated challenge or
+verification attempts. The limiter uses the submitted Stellar address when present
+and falls back to the client IP otherwise.
+
 ## Configuration
 
 | Variable | Default | Description |

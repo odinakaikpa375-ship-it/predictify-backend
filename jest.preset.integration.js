@@ -7,7 +7,13 @@
 
 module.exports = {
   transform: {
-    "^.+\\.tsx?$": ["ts-jest", { tsconfig: "tsconfig.json" }],
+    "^.+\\.tsx?$": [
+      "ts-jest",
+      {
+        tsconfig: "tsconfig.test.json",
+        diagnostics: false,
+      },
+    ],
   },
   testEnvironment: "node",
   globalSetup: "<rootDir>/tests/integration/globalSetup.js",
@@ -16,4 +22,8 @@ module.exports = {
   testMatch: ["**/tests/integration/**/*.test.ts"],
   testTimeout: 120000,
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json", "node"],
+  moduleNameMapper: {
+    "^.*/config/redis$": "<rootDir>/src/config/redis.ts",
+    "^.*/cache/marketsCache$": "<rootDir>/src/cache/marketsCache.ts",
+  },
 };

@@ -12,6 +12,7 @@ import { rateLimitAnon } from "../../middleware/rateLimitAnon";
 import { listFeaturedMarkets } from "../../services/marketFeatureService";
 import { logger } from "../../config/logger";
 import { RouteErrorFactory } from "../../errors";
+import { conditionalGet } from "../../middleware/etag";
 import { recommendationsRouter } from "./recommendations";
 import { trendingRouter } from "./trending";
 import { tagsRouter } from "./tags";
@@ -99,21 +100,26 @@ marketsRouter.get("/", async (req, res, next) => {
       throw parsed.error;
     }
 
-    const { limit, status, category, tag, sort, order } = parsed.data;
+    const { limit, cursor, status, category, tag, sort, order } = parsed.data;
 
     logger.debug(
-      { reqId, correlationId: reqId, limit, status, category, tag, sort, order },
+      { reqId, correlationId: reqId, limit, hasCursor: !!cursor, status, category, tag, sort, order },
       "markets_list_fetching",
     );
 
-    const data = await listMarkets();
-    const slicedData = limit !== undefined ? data.slice(0, limit) : data;
+    const page = await listMarkets({ limit, cursor });
+    const payload = { data: page.data, nextCursor: page.nextCursor };
+
+    const etagHandled = conditionalGet(payload, req, res);
+    if (etagHandled) {
+      return;
+    }
 
     logger.info(
-      { reqId, correlationId: reqId, count: slicedData.length },
+      { reqId, correlationId: reqId, count: page.data.length, hasNext: !!page.nextCursor },
       "markets_list_success",
     );
-    return res.json({ data: slicedData });
+    return res.status(200).json(payload);
   } catch (e) {
     logger.error(
       { reqId, correlationId: reqId, err: e },
@@ -189,7 +195,13 @@ marketsRouter.get("/:id", async (req, res, next) => {
       { reqId, correlationId: reqId, marketId },
       "markets_get_success",
     );
-    return res.json({ data: market });
+
+    const responsePayload = { data: market };
+    if (conditionalGet(responsePayload, req, res)) {
+      return;
+    }
+
+    return res.json(responsePayload);
   } catch (e) {
     logger.error(
       { reqId, correlationId: reqId, marketId: req.params.id, err: e },

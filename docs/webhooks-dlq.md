@@ -49,6 +49,48 @@ byte-identical and validly signed.
 
 All routes require a Bearer JWT whose `role` claim is `admin`.
 
+### `GET /api/webhooks`
+
+Returns live webhook deliveries newest first. Pagination is cursor based over
+`createdAt DESC, id DESC`, so paging remains stable while new deliveries are
+created between requests.
+
+#### Query parameters
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `limit` | integer string | `20` | Items per page. Clamped to `[1, 100]`. Non-numeric values return `400`. |
+| `cursor` | string | _(none)_ | Opaque page token from a previous response. Empty string returns `400`. |
+
+#### Response `200`
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "eventId": "evt_abc123",
+      "eventType": "market.resolved",
+      "targetUrl": "https://subscriber.example/hook",
+      "payloadBase64": "c2lnbmVkLWJvZHk=",
+      "signature": "sha256=abc...",
+      "headers": null,
+      "status": "pending",
+      "attempts": 0,
+      "maxAttempts": 5,
+      "lastError": null,
+      "nextAttemptAt": "2026-07-25T01:00:00.000Z",
+      "createdAt": "2026-07-25T01:00:00.000Z",
+      "updatedAt": "2026-07-25T01:00:00.000Z"
+    }
+  ],
+  "nextCursor": "eyJ..."
+}
+```
+
+Invalid query parameters return `{ "error": { "code": "validation_error",
+"message": "...", "requestId": "..." } }`.
+
 ### `GET /api/admin/webhooks/dlq` (dedicated list endpoint)
 
 **File:** `src/routes/admin/webhooks/dlq.ts`

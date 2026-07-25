@@ -15,6 +15,13 @@
       "when": 1784894109864,
       "tag": "0001_add_notifications_table",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785000000000,
+      "tag": "0002_add_quota_requests",
+      "breakpoints": true
     }
   ]
 }

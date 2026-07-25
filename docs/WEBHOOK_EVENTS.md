@@ -5,11 +5,15 @@ these event type strings when creating a subscription and can expect the
 documented payload schema on every delivery.
 
 > **Delivery mechanics.** Every POST carries the JSON payload in the body,
-> signed with `X-Predictify-Signature: sha256=<hex>` (HMAC-SHA256 over the raw
+> signed with `X-Predictify-Signature: sha256=<hex>` (HMAC-SHA-256 over the raw
 > body bytes using the subscription secret). A unique `X-Predictify-Delivery`
 > UUID is included in each request so subscribers can detect and deduplicate
 > retries. See [webhook delivery & DLQ](./webhooks-dlq.md) for retry schedules
 > and dead-letter queue behaviour.
+>
+> **Catalog retrieval.** `GET /api/webhooks` now returns a strong `ETag` and
+> supports conditional revalidation with `If-None-Match`; a matching request
+> returns `304 Not Modified` without a body.
 
 ---
 

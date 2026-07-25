@@ -2,8 +2,9 @@
 import { invalidateMarketCache } from "../cache/marketsCache";
 import { db, getDb } from "../db/client";
 import { markets, marketAuditLog, predictions } from "../db/schema";
-import { and, asc, eq, inArray, desc, notInArray, sql, or } from "drizzle-orm";
+import { and, asc, eq, inArray, desc, notInArray, sql, or, lt } from "drizzle-orm";
 import { emitMarketEvent, LogEvent } from "../logging/events";
+import { decodeCursor, encodeCursor, type Page } from "../utils/cursor";
 
 export interface Market {
   id: string;
@@ -29,43 +30,92 @@ export class VersionConflictError extends Error {
 export const UPCOMING_MARKET_STATUSES = ["upcoming", "pending", "scheduled"] as const;
 
 /**
- * Lists active markets with pagination.
+ * Lists non-archived markets with cursor pagination.
  *
- * @param options.limit - Number of results to return (default: 50)
- * @param options.offset - Pagination offset (default: 0)
- * @returns Array of markets formatted with ISO timestamps
+ * Sort order: (createdAt DESC, id DESC) - newest markets first, with the
+ * unique id tie-breaker providing stable ordering within the same timestamp.
+ *
+ * Keyset WHERE predicate for DESC ordering:
+ *   (createdAt < cursorTime)
+ *   OR (createdAt = cursorTime AND id < cursorId)
+ *
+ * @param options.limit - Number of results to return (default: 20, max: 100)
+ * @param options.cursor - Opaque cursor token from the previous page's nextCursor
+ * @returns Page of markets formatted with ISO timestamps
  * @throws Error if database query fails
  */
 export async function listMarkets(
-  options: { limit?: number; offset?: number } = {},
-) {
-  const limit = options.limit ?? 50;
-  const offset = options.offset ?? 0;
+  options: { limit?: number; cursor?: string } = {},
+): Promise<Page<{
+  id: string;
+  question: string;
+  status: string;
+  resolutionTime: string;
+}>> {
+  const limit = options.limit ?? 20;
+  const cursor = options.cursor;
 
+  // Build WHERE conditions - always exclude archived markets.
+  const conditions = [eq(markets.archived, false)];
+
+  // Decode cursor and append keyset predicate for DESC (createdAt, id).
+  const cursorKey = decodeCursor(cursor);
+  if (cursorKey) {
+    const cursorTime = new Date(cursorKey.sortValue);
+    conditions.push(
+      or(
+        lt(markets.createdAt, cursorTime),
+        and(
+          eq(markets.createdAt, cursorTime),
+          lt(markets.id, cursorKey.id),
+        ),
+      )!,
+    );
+  }
+
+  // Fetch limit+1 rows so we can detect whether a next page exists.
   const rows = await getDb()
     .select({
       id: markets.id,
       question: markets.question,
       status: markets.status,
       resolutionTime: markets.resolutionTime,
+      createdAt: markets.createdAt,
     })
     .from(markets)
-    .where(eq(markets.archived, false))
-    .orderBy(asc(markets.resolutionTime), asc(markets.id))
-    .limit(limit)
-    .offset(offset);
+    .where(and(...conditions))
+    .orderBy(desc(markets.createdAt), desc(markets.id))
+    .limit(limit + 1);
 
   if (!Array.isArray(rows)) {
     throw new Error("Unexpected response from database: rows is not an array");
   }
 
-  return rows.map((r) => ({
-    ...r,
-    resolutionTime:
-      r.resolutionTime instanceof Date
-        ? r.resolutionTime.toISOString()
-        : r.resolutionTime,
-  }));
+  const hasMore = rows.length > limit;
+  const data = rows.slice(0, limit);
+
+  // Mint next-page cursor from the last row on this page.
+  const last = data[data.length - 1];
+  const nextCursor =
+    hasMore && last
+      ? encodeCursor({
+          sortValue: last.createdAt.toISOString(),
+          id: last.id,
+        })
+      : null;
+
+  return {
+    data: data.map((r) => ({
+      id: r.id,
+      question: r.question,
+      status: r.status,
+      resolutionTime:
+        r.resolutionTime instanceof Date
+          ? r.resolutionTime.toISOString()
+          : r.resolutionTime,
+    })),
+    nextCursor,
+  };
 }
 
 /**

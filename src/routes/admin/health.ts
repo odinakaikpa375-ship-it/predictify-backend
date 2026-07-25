@@ -36,6 +36,7 @@ export interface AdminHealthRouterOptions {
 }
 
 /** Derive the HTTP status from the collection of check statuses. */
+
 function toHttpStatus(checks: CheckStatus[]): 200 | 207 {
   return checks.every((s) => s === "ok") ? 200 : 207;
 }

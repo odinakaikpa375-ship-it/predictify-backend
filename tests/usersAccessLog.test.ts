@@ -100,6 +100,7 @@ function makeReq(overrides: Partial<{
     id: overrides.id,
     method: overrides.method ?? "GET",
     path: overrides.path ?? "/api/users/me",
+    originalUrl: overrides.path ?? "/api/users/me",
     ip: overrides.ip ?? "127.0.0.1",
     // Express adds query, params, etc. — not needed for accessLog
   } as unknown as Request;
@@ -285,6 +286,58 @@ describe("accessLog middleware", () => {
     expect(loggerInfoSpy).toHaveBeenCalledWith(
       expect.objectContaining({ statusCode: 404, correlationId: "not-found-id" }),
       "users_access_log",
+    );
+  });
+
+  it("emits an auth_access_log entry when originalUrl starts with /api/auth", async () => {
+    const req = makeReq({
+      headers: { "x-correlation-id": "auth-log-test-id" },
+      method: "POST",
+      path: "/api/auth/challenge",
+      ip: "10.0.0.1",
+    });
+    const res = makeRes();
+    const next: NextFunction = jest.fn();
+
+    accessLog(req, res, next);
+    await fireFinish(res);
+
+    expect(loggerInfoSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        correlationId: "auth-log-test-id",
+        method: "POST",
+        path: "/api/auth/challenge",
+        statusCode: 200,
+        ip: "10.0.0.1",
+        durationMs: expect.any(Number),
+      }),
+      "auth_access_log",
+    );
+  });
+
+  it("emits a predictions_access_log entry when originalUrl starts with /api/predictions", async () => {
+    const req = makeReq({
+      headers: { "x-correlation-id": "predictions-log-test-id" },
+      method: "GET",
+      path: "/api/predictions",
+      ip: "10.0.0.2",
+    });
+    const res = makeRes();
+    const next: NextFunction = jest.fn();
+
+    accessLog(req, res, next);
+    await fireFinish(res);
+
+    expect(loggerInfoSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        correlationId: "predictions-log-test-id",
+        method: "GET",
+        path: "/api/predictions",
+        statusCode: 200,
+        ip: "10.0.0.2",
+        durationMs: expect.any(Number),
+      }),
+      "predictions_access_log",
     );
   });
 

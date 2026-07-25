@@ -2,6 +2,30 @@ import request from "supertest";
 import { createApp } from "../src/index";
 import { API_VERSION_HEADER, DEFAULT_API_VERSION } from "../src/middleware/apiVersion";
 
+describe("GET /api/webhooks ETag support", () => {
+  it("returns an ETag and supports conditional revalidation", async () => {
+    const app = createApp();
+
+    const first = await request(app).get("/api/webhooks");
+
+    expect(first.status).toBe(200);
+    expect(first.headers.etag).toBeDefined();
+    expect(first.body).toEqual({
+      data: {
+        events: expect.any(Array),
+        eventCount: expect.any(Number),
+      },
+    });
+
+    const cached = await request(app)
+      .get("/api/webhooks")
+      .set("If-None-Match", first.headers.etag as string);
+
+    expect(cached.status).toBe(304);
+    expect(cached.text).toBe("");
+  });
+});
+
 describe("X-Api-Version middleware", () => {
   it("defaults to v1 and exposes the resolved version to handlers", async () => {
     const app = createApp();

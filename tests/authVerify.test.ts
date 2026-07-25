@@ -110,4 +110,34 @@ describe("POST /api/auth/verify", () => {
     expect(res.status).toBe(401);
     expect(res.body.error.code).toBe("bad_signature");
   });
+
+  it("supports ETag and returns 304 on match", async () => {
+    verifyAndConsume.mockResolvedValueOnce({ nonce, expiresAt: new Date(Date.now() + 300000) });
+    upsertUserByStellarAddress.mockResolvedValueOnce({ id: "user-1", stellarAddress: address, createdAt: new Date() });
+
+    const payload = {
+      stellarAddress: address,
+      nonce,
+      signature: signatureForNonce(keypair, nonce),
+    };
+
+    const res = await request(app).post("/api/auth/verify").send(payload);
+    
+    expect(res.status).toBe(200);
+    expect(res.headers.etag).toBeDefined();
+    
+    const etag = res.headers.etag;
+    
+    // We mock the service again to simulate the same response being generated
+    verifyAndConsume.mockResolvedValueOnce({ nonce, expiresAt: new Date(Date.now() + 300000) });
+    upsertUserByStellarAddress.mockResolvedValueOnce({ id: "user-1", stellarAddress: address, createdAt: new Date() });
+
+    const res304 = await request(app)
+      .post("/api/auth/verify")
+      .set("If-None-Match", etag)
+      .send(payload);
+      
+    expect(res304.status).toBe(304);
+    expect(res304.body).toEqual({});
+  });
 });

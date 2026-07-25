@@ -38,6 +38,8 @@ import { logger } from "../config/logger";
 import { getRequestId } from "../lib/requestContext";
 import { clampLimit, DEFAULT_PAGE_SIZE } from "../utils/cursor";
 import { RouteErrorFactory } from "../errors";
+import { requestTimeout } from "../middleware/timeout";
+import { usersMetricsMiddleware } from "../metrics/usersMetrics";
 
 export const usersRouter = Router();
 
@@ -51,6 +53,16 @@ const stellarAddressSchema = z
 // correlation ID via res.locals.correlationId.
 // ---------------------------------------------------------------------------
 usersRouter.use(accessLog);
+
+// ---------------------------------------------------------------------------
+// Per-request timeout with graceful abort on /api/users
+// ---------------------------------------------------------------------------
+usersRouter.use(requestTimeout(15000)); // 15 seconds timeout
+
+// ---------------------------------------------------------------------------
+// Per-endpoint Prometheus metrics for /api/users
+// ---------------------------------------------------------------------------
+usersRouter.use(usersMetricsMiddleware);
 
 // ---------------------------------------------------------------------------
 // GET /api/users/me

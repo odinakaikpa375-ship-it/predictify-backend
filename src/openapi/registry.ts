@@ -145,6 +145,41 @@ registry.registerPath({
   },
 });
 
+// ── /.well-known/jwks.json ───────────────────────────────────────────────────
+
+const JwkKey = z
+  .object({
+    kid: z.string(),
+    alg: z.literal("HS256"),
+    kty: z.literal("oct"),
+    use: z.literal("sig"),
+  })
+  .openapi("JwkKey");
+
+const JwksResponse = z
+  .object({
+    keys: z.array(JwkKey),
+  })
+  .openapi("JwksResponse");
+
+registry.registerPath({
+  method: "get",
+  path: "/.well-known/jwks.json",
+  operationId: "getJwks",
+  tags: ["JWKS"],
+  summary: "JSON Web Key Set endpoint",
+  description:
+    "Returns the JSON Web Key Set containing metadata for all available JWT signing keys. " +
+    "Follows RFC 7517 (JWK) and RFC 7513 (JWKS) where applicable, adapted for HMAC-based signing (HS256). " +
+    "The actual secret values are never exposed - only key metadata is returned.",
+  responses: {
+    200: {
+      description: "JWKS response with key metadata",
+      content: { "application/json": { schema: JwksResponse } },
+    },
+  },
+});
+
 // ── /api/auth ────────────────────────────────────────────────────────────────
 
 const ChallengeRequest = z
@@ -161,12 +196,37 @@ registry.registerPath({
   tags: ["Auth"],
   summary: "Request a sign-in challenge nonce",
   request: {
-    body: { content: { "application/json": { schema: ChallengeRequest } } },
+    body: {
+      content: {
+        "application/json": {
+          schema: ChallengeRequest,
+          examples: {
+            challengeRequest: {
+              value: {
+                stellarAddress: "GABC1234567890DEFGHIJKLMNOPQRSTUVWX",
+              },
+            },
+          },
+        },
+      },
+    },
   },
   responses: {
     201: {
       description: "Challenge issued",
-      content: { "application/json": { schema: ChallengeResponse } },
+      content: {
+        "application/json": {
+          schema: ChallengeResponse,
+          examples: {
+            challengeIssued: {
+              value: {
+                nonce: "challenge-nonce-001",
+                expiresAt: "2026-07-25T12:00:00.000Z",
+              },
+            },
+          },
+        },
+      },
     },
     400: {
       description: "Validation error",
@@ -193,12 +253,39 @@ registry.registerPath({
   tags: ["Auth"],
   summary: "Verify challenge signature and obtain JWT",
   request: {
-    body: { content: { "application/json": { schema: VerifyRequest } } },
+    body: {
+      content: {
+        "application/json": {
+          schema: VerifyRequest,
+          examples: {
+            verifyRequest: {
+              value: {
+                stellarAddress: "GABC1234567890DEFGHIJKLMNOPQRSTUVWX",
+                nonce: "challenge-nonce-001",
+                signature: "ed25519-signature-hex",
+              },
+            },
+          },
+        },
+      },
+    },
   },
   responses: {
     200: {
       description: "Tokens issued",
-      content: { "application/json": { schema: TokenPair } },
+      content: {
+        "application/json": {
+          schema: TokenPair,
+          examples: {
+            tokensIssued: {
+              value: {
+                accessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJnb29nbGUtdXNlcjEifQ.signature",
+                refreshToken: "refresh-token-001",
+              },
+            },
+          },
+        },
+      },
     },
     400: {
       description: "Validation error",
@@ -222,12 +309,37 @@ registry.registerPath({
   tags: ["Auth"],
   summary: "Rotate a refresh token",
   request: {
-    body: { content: { "application/json": { schema: RefreshRequest } } },
+    body: {
+      content: {
+        "application/json": {
+          schema: RefreshRequest,
+          examples: {
+            refreshTokenRequest: {
+              value: {
+                refreshToken: "refresh-token-001",
+              },
+            },
+          },
+        },
+      },
+    },
   },
   responses: {
     200: {
       description: "New token pair",
-      content: { "application/json": { schema: TokenPair } },
+      content: {
+        "application/json": {
+          schema: TokenPair,
+          examples: {
+            refreshedTokens: {
+              value: {
+                accessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJnb29nbGUtdXNlcjEifQ.signature",
+                refreshToken: "refresh-token-002",
+              },
+            },
+          },
+        },
+      },
     },
     400: {
       description: "Missing token",
@@ -251,7 +363,20 @@ registry.registerPath({
   tags: ["Auth"],
   summary: "Revoke the entire refresh-token family",
   request: {
-    body: { content: { "application/json": { schema: RefreshRequest } } },
+    body: {
+      content: {
+        "application/json": {
+          schema: RefreshRequest,
+          examples: {
+            logoutRequest: {
+              value: {
+                refreshToken: "refresh-token-001",
+              },
+            },
+          },
+        },
+      },
+    },
   },
   responses: {
     204: { description: "Logged out" },
@@ -1194,6 +1319,20 @@ registry.registerPath({
       content: {
         "application/json": {
           schema: z.object({ data: CurrentUserProfile }),
+          examples: {
+            currentUser: {
+              value: {
+                data: {
+                  stellarAddress: "GABC1234567890DEFGHIJKLMNOPQRSTUVWX",
+                  createdAt: "2026-06-27T12:00:00.000Z",
+                  totals: {
+                    prediction_count: 2,
+                    claim_count: 0,
+                  },
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -1227,6 +1366,21 @@ registry.registerPath({
             data: z.array(Prediction),
             nextCursor: z.string().nullable(),
           }),
+          examples: {
+            samplePage: {
+              value: {
+                data: [
+                  {
+                    id: "11111111-1111-1111-1111-111111111111",
+                    marketId: "market-abc-123",
+                    status: "confirmed",
+                    createdAt: "2026-06-27T12:00:00.000Z",
+                  },
+                ],
+                nextCursor: "djF8MjR8...",
+              },
+            },
+          },
         },
       },
     },
@@ -1252,7 +1406,32 @@ registry.registerPath({
     200: {
       description: "User profile",
       content: {
-        "application/json": { schema: z.object({ data: UserProfile }) },
+        "application/json": {
+          schema: z.object({ data: UserProfile }),
+          examples: {
+            publicProfile: {
+              value: {
+                data: {
+                  id: "22222222-2222-2222-2222-222222222222",
+                  stellarAddress: "GXYZ1234567890ABCDEFGHIJKLMNOPQRSTUV",
+                  joinedAt: "2025-01-01T12:00:00.000Z",
+                  predictions: [
+                    {
+                      id: "33333333-3333-3333-3333-333333333333",
+                      marketId: "market-def-456",
+                      status: "won",
+                      createdAt: "2026-06-27T12:00:00.000Z",
+                    },
+                  ],
+                  totals: {
+                    prediction_count: 1,
+                    claim_count: 1,
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     },
     400: {
@@ -1337,16 +1516,67 @@ registry.registerPath({
     200: {
       description: "Paginated list of predictions",
       content: {
-        "application/json": { schema: PredictionsListResponse },
+        "application/json": {
+          schema: PredictionsListResponse,
+          examples: {
+            success: {
+              value: {
+                data: [
+                  {
+                    id: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+                    marketId: "market_123",
+                    question: "Will Bitcoin hit 100k in 2026?",
+                    outcome: "yes",
+                    amount: "50.0000000",
+                    txHash: "8c253240be423ef8109d94101e40a02bc8f297b819f0ff4f4c20b8e906059e66",
+                    status: "won",
+                    result: "yes",
+                    createdAt: "2026-05-01T12:00:00.000Z",
+                    resolutionTime: "2026-06-01T12:00:00.000Z",
+                  },
+                ],
+                nextCursor: "cursor_abc123",
+              },
+            },
+          },
+        },
       },
     },
     400: {
       description: "Validation error — invalid query parameters",
-      content: { "application/json": { schema: ValidationErrorBody } },
+      content: {
+        "application/json": {
+          schema: ValidationErrorBody,
+          examples: {
+            invalidLimit: {
+              value: {
+                error: {
+                  code: "VALIDATION_ERROR",
+                  details: "Limit must be between 1 and 100",
+                },
+              },
+            },
+          },
+        },
+      },
     },
     401: {
       description: "Unauthorized — missing or invalid JWT",
-      content: { "application/json": { schema: ErrorBody } },
+      content: {
+        "application/json": {
+          schema: ErrorBody,
+          examples: {
+            unauthorized: {
+              value: {
+                error: {
+                  code: "UNAUTHORIZED",
+                  requestId: "req_xyz789",
+                },
+              },
+            },
+          },
+        },
+      },
     },
   },
 });
@@ -1363,7 +1593,20 @@ registry.registerPath({
     200: {
       description: "Follow relationship created",
       content: {
-        "application/json": { schema: z.object({ data: FollowResult }) },
+        "application/json": {
+          schema: z.object({ data: FollowResult }),
+          examples: {
+            followCreated: {
+              value: {
+                data: {
+                  follower: "GABC1234567890DEFGHIJKLMNOPQRSTUVWX",
+                  followee: "GXYZ1234567890ABCDEFGHIJKLMNOPQRSTUV",
+                  followedAt: "2026-06-27T12:00:00.000Z",
+                },
+              },
+            },
+          },
+        },
       },
     },
     400: {
@@ -1389,7 +1632,20 @@ registry.registerPath({
     200: {
       description: "Follow relationship removed",
       content: {
-        "application/json": { schema: z.object({ data: FollowResult }) },
+        "application/json": {
+          schema: z.object({ data: FollowResult }),
+          examples: {
+            followRemoved: {
+              value: {
+                data: {
+                  follower: "GABC1234567890DEFGHIJKLMNOPQRSTUVWX",
+                  followee: "GXYZ1234567890ABCDEFGHIJKLMNOPQRSTUV",
+                  followedAt: "2026-06-27T12:00:00.000Z",
+                },
+              },
+            },
+          },
+        },
       },
     },
     400: {
@@ -1926,6 +2182,259 @@ registry.registerPath({
     },
     429: {
       description: "Rate limit exceeded",
+      content: { "application/json": { schema: ErrorBody } },
+    },
+  },
+});
+
+// ── /api/quota/requests ──────────────────────────────────────────────────
+
+const QuotaType = z.enum(["prediction_limit", "daily_prediction_limit", "claim_limit"]).openapi("QuotaType");
+
+const CreateQuotaRequestSchema = z
+  .object({
+    quotaType: QuotaType,
+    requestedValue: z.number().int().min(1),
+    reason: z.string().min(10).max(1000),
+  })
+  .openapi("CreateQuotaRequest");
+
+const QuotaRequestSchema = z
+  .object({
+    id: z.string().uuid(),
+    userId: z.string().uuid(),
+    quotaType: z.string(),
+    requestedValue: z.number().int(),
+    reason: z.string(),
+    status: z.string(),
+    reviewedBy: z.string().nullable(),
+    reviewNotes: z.string().nullable(),
+    reviewedAt: z.string().datetime().nullable(),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .openapi("QuotaRequest");
+
+registry.registerPath({
+  method: "post",
+  path: "/api/quota/requests",
+  operationId: "createQuotaRequest",
+  tags: ["Quota"],
+  summary: "Submit a quota increase request",
+  description:
+    "Authenticated users can request an increase to their rate limits. " +
+    "Each user may have at most 5 pending requests at a time.",
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: { content: { "application/json": { schema: CreateQuotaRequestSchema } } },
+  },
+  responses: {
+    201: {
+      description: "Quota request created",
+      content: {
+        "application/json": { schema: z.object({ data: QuotaRequestSchema }) },
+      },
+    },
+    400: {
+      description: "Validation error or too many pending requests",
+      content: { "application/json": { schema: ValidationErrorBody } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorBody } },
+    },
+    403: {
+      description: "Forbidden",
+      content: { "application/json": { schema: ErrorBody } },
+    },
+    422: {
+      description: "Validation error",
+      content: { "application/json": { schema: ValidationErrorBody } },
+    },
+    429: {
+      description: "Rate limit exceeded",
+      content: { "application/json": { schema: ErrorBody } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/quota/requests",
+  operationId: "listQuotaRequests",
+  tags: ["Quota"],
+  summary: "List quota requests for the authenticated user",
+  description: "Returns all quota requests submitted by the authenticated user, newest first.",
+  security: [{ bearerAuth: [] }],
+  responses: {
+    200: {
+      description: "List of quota requests",
+      content: {
+        "application/json": {
+          schema: z.object({ data: z.array(QuotaRequestSchema) }),
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorBody } },
+    },
+    403: {
+      description: "Forbidden",
+      content: { "application/json": { schema: ErrorBody } },
+    },
+    429: {
+      description: "Rate limit exceeded",
+      content: { "application/json": { schema: ErrorBody } },
+    },
+  },
+});
+
+// ── /api/leaderboard/global ──────────────────────────────────────────────────
+
+/**
+ * GlobalLeaderboardEntry — a single row in the global leaderboard.
+ * Aggregated across ALL markets (no time-window filter).
+ */
+const GlobalLeaderboardEntry = registry.register(
+  "GlobalLeaderboardEntry",
+  z
+    .object({
+      user_id: z.string().uuid().describe("Internal user UUID"),
+      stellar_address: z.string().describe("User's Stellar public key (G…)"),
+      total_predictions: z
+        .number()
+        .int()
+        .nonnegative()
+        .describe("Total predictions placed across all markets"),
+      correct_predictions: z
+        .number()
+        .int()
+        .nonnegative()
+        .describe("Predictions whose outcome matched the resolved market outcome"),
+      accuracy_percentage: z
+        .number()
+        .min(0)
+        .max(100)
+        .describe("Accuracy as a percentage (0–100), rounded to 2 d.p."),
+      total_markets: z
+        .number()
+        .int()
+        .nonnegative()
+        .describe("Number of distinct markets in which the user participated"),
+      rank: z
+        .number()
+        .int()
+        .positive()
+        .describe(
+          "1-based global rank, ordered by accuracy DESC then total_predictions DESC",
+        ),
+    })
+    .openapi("GlobalLeaderboardEntry"),
+);
+
+registry.registerPath({
+  method: "get",
+  path: "/api/leaderboard/global",
+  operationId: "getGlobalLeaderboard",
+  tags: ["Leaderboard"],
+  summary: "Global leaderboard across all markets",
+  description:
+    "Returns a paginated leaderboard ranking all users by their prediction " +
+    "accuracy and volume across **every** market on the platform. " +
+    "Results are cached for 5 minutes. " +
+    "Pass `refresh=true` to force an immediate materialized-view refresh " +
+    "(expensive; intended for admin/debug use).",
+  request: {
+    query: z.object({
+      limit: z.coerce
+        .number()
+        .int()
+        .positive()
+        .max(100)
+        .default(50)
+        .describe("Maximum entries to return (1–100, default 50)"),
+      offset: z.coerce
+        .number()
+        .int()
+        .nonnegative()
+        .default(0)
+        .describe("Zero-based row offset for pagination (default 0)"),
+      refresh: z.coerce
+        .boolean()
+        .default(false)
+        .describe(
+          "When true, triggers REFRESH MATERIALIZED VIEW CONCURRENTLY before querying",
+        ),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Paginated global leaderboard",
+      content: {
+        "application/json": {
+          schema: z.object({
+            data: z.array(GlobalLeaderboardEntry),
+            meta: z.object({
+              limit: z.number().int(),
+              offset: z.number().int(),
+              count: z.number().int(),
+              refresh: z.boolean(),
+            }),
+          }),
+        },
+      },
+    },
+    400: {
+      description: "Invalid query parameters",
+      content: { "application/json": { schema: ValidationErrorBody } },
+    },
+    429: {
+      description: "Rate limit exceeded",
+      content: { "application/json": { schema: ErrorBody } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorBody } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/leaderboard/global/user/{stellarAddress}",
+  operationId: "getGlobalLeaderboardEntry",
+  tags: ["Leaderboard"],
+  summary: "Get a single user's global leaderboard entry",
+  description:
+    "Looks up the global leaderboard rank and stats for a specific Stellar " +
+    "address. Returns 404 when the address has never placed a prediction.",
+  request: {
+    params: z.object({
+      stellarAddress: z
+        .string()
+        .describe("The user's Stellar public key (G…)"),
+    }),
+  },
+  responses: {
+    200: {
+      description: "User's global leaderboard entry",
+      content: {
+        "application/json": {
+          schema: z.object({ data: GlobalLeaderboardEntry }),
+        },
+      },
+    },
+    404: {
+      description: "Address not found on the global leaderboard",
+      content: { "application/json": { schema: ErrorBody } },
+    },
+    429: {
+      description: "Rate limit exceeded",
+      content: { "application/json": { schema: ErrorBody } },
+    },
+    500: {
+      description: "Internal server error",
       content: { "application/json": { schema: ErrorBody } },
     },
   },

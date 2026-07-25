@@ -120,6 +120,15 @@ scripts/       dev helpers (check-drizzle-drift.ts)
   workflows/   CI pipeline (lint, test, drift check, migrate)
 ```
 
+## Global Leaderboard
+
+A platform-wide leaderboard aggregated across **all markets and all time** is available at:
+
+- **`GET /api/leaderboard/global`** — paginated global rankings (`limit`, `offset`, `refresh` params)
+- **`GET /api/leaderboard/global/user/:stellarAddress`** — single-user global entry
+
+Results are cached in Redis for 5 minutes. Passing `refresh=true` forces an immediate `REFRESH MATERIALIZED VIEW CONCURRENTLY`. See [docs/global-leaderboard.md](docs/global-leaderboard.md) for full documentation.
+
 ## Roadmap
 
 This starter is intentionally minimal. The full backlog is tracked in GitHub Issues under the **OFFICIAL CAMPAIGN** label. Major themes:

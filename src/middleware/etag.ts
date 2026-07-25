@@ -8,8 +8,9 @@
  * `generateETag(payload)` – deterministically hashes any serialisable value
  * using SHA-256 and returns a quoted strong ETag string, e.g. `"a3f2..."`.
  *
- * `conditionalGet(payload)` – Express middleware factory.  Call it with the
- * freshly-loaded resource payload after the database read:
+ * `conditionalGet(payload)` – Express middleware helper. Call it with the
+ * freshly-loaded resource payload after the database read (single object or
+ * collection response payloads such as `{ data: [...] }`):
  *
  *   1. Computes the strong ETag for `payload`.
  *   2. Sets `ETag` and `Cache-Control: no-cache` response headers so the
@@ -133,15 +134,22 @@ export function conditionalGet(
   res.setHeader("Cache-Control", "no-cache");
 
   const ifNoneMatch = req.headers["if-none-match"];
+  const ifNoneMatchValues = Array.isArray(ifNoneMatch)
+    ? ifNoneMatch.filter((value): value is string => typeof value === "string")
+    : typeof ifNoneMatch === "string"
+      ? [ifNoneMatch]
+      : [];
 
-  if (ifNoneMatch) {
+  if (ifNoneMatchValues.length > 0) {
     // Strip surrounding quotes from the client-sent header value so both
     // `"abc123"` (quoted, as sent by compliant clients) and the raw hash
     // are compared correctly against our quoted ETag.
-    const normalised = ifNoneMatch.replace(/^"|"$/g, "");
+    const normalisedValues = ifNoneMatchValues.map((value) =>
+      value.replace(/^"|"$/g, ""),
+    );
     const currentHash = etag.replace(/^"|"$/g, "");
 
-    if (normalised === currentHash) {
+    if (normalisedValues.includes(currentHash)) {
       logger.debug(
         { reqId, etag, path: req.path },
         "etag_not_modified",

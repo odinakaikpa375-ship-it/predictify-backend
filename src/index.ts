@@ -1,5 +1,4 @@
 import express from "express";
-import { featureFlagsRouter } from './routes/admin/featureFlags';
 import helmet from "helmet";
 import pinoHttp from "pino-http";
 import { v4 as uuidv4 } from "uuid";
@@ -11,6 +10,7 @@ import { defaultBodySizeLimitMiddleware, webhookBodySizeLimitMiddleware } from "
 import { healthRouter } from "./routes/health";
 import dependenciesRouter from "./routes/healthz/dependencies";
 import { createReadyRouter } from "./routes/health/ready";
+import { dependenciesRouter } from "./routes/health/dependencies";
 import { redisConnection } from "./queue";
 import { authRouter } from "./routes/auth";
 import { marketsRouter } from "./routes/markets";
@@ -19,17 +19,23 @@ import { usersRouter } from "./routes/users";
 import { usersHealthRouter } from "./routes/users/health";
 import { userPortfolioRouter } from "./routes/users/portfolio";
 import { devicesRouter } from "./routes/devices";
-import { adminFeatureFlagsRouter } from "./routes/admin/feature-flags";
+import { adminFeatureFlagsRouter } from "./routes/admin/featureFlags";
 import { adminUsersRouter } from "./routes/adminUsers";
+import { adminNotesRouter } from "./routes/admin/users/notes";
 import { leaderboardRouter } from "./routes/leaderboard";
+import { globalLeaderboardRouter } from "./routes/leaderboard/global";
+import { devicesRouter } from "./routes/devices";
 import { createDocsRouter } from "./routes/docs";
 import { sessionsRouter } from "./routes/me/sessions";
 import { notificationsRouter } from "./routes/notifications";
 import { socialRouter } from "./routes/social";
+import { webhooksRouter } from "./routes/webhooks";
 import { adminAuditRouter } from "./routes/admin/audit";
+import { adminAuditExportRouter } from "./routes/admin/audit/export";
 import { adminMarketsRouter } from "./routes/admin/markets";
 import { adminSchemaVersionsRouter } from "./routes/admin/schema-versions";
 import { errorHandler } from "./middleware/errorHandler";
+import { stopIndexerHealthProbe } from "./jobs/indexerHealthProbe";
 import { requestContextStorage } from "./lib/requestContext";
 import { REQUEST_ID_HEADER } from "./lib/http";
 import { register } from "./metrics/registry";
@@ -42,11 +48,20 @@ import { backupVerificationWorker } from "./workers/backupVerificationWorker";
 import { reconciliationWorker } from "./workers/reconciliationWorker";
 import { rateLimitStatusRouter } from "./routes/rate-limit/status";
 import { adminRateLimitInspectRouter } from "./routes/admin/rate-limit/inspect";
+import { quotaRequestsRouter } from "./routes/quota/requests";
 import { startSlowQueryAlerter, stopSlowQueryAlerter } from "./workers/slowQueryAlerter";
+import { scheduledReportsRouter } from "./routes/reports/scheduled";
 
 const docsEnabled = env.NODE_ENV !== "production" || process.env.ENABLE_DOCS === "true";
 
 const REQUEST_ID_MAX_LENGTH = 64;
+
+export interface CreateAppOptions {
+  webhooks?: {
+    store: WebhookStore;
+    dispatcher: IWebhookDispatcher;
+  };
+}
 
 function sanitizeRequestId(raw: string): string | undefined {
   const sanitized = raw
@@ -55,7 +70,7 @@ function sanitizeRequestId(raw: string): string | undefined {
   return sanitized.length > 0 ? sanitized : undefined;
 }
 
-export function createApp(): express.Express {
+export function createApp(_options: CreateAppOptions = {}): express.Express {
   const app = express();
 
   app.set("etag", false);
@@ -103,6 +118,7 @@ export function createApp(): express.Express {
   app.use("/health", healthRouter);
   app.use("/healthz/dependencies", dependenciesRouter);
   app.use("/api/health/ready", createReadyRouter({ db, redis: redisConnection }));
+  app.use("/api/health/dependencies", dependenciesRouter);
 
   const mutationMethods = ["POST", "PATCH"] as const;
   app.use("/api", (req, res, next) =>
@@ -115,8 +131,11 @@ export function createApp(): express.Express {
   app.use("/api/markets", marketsRouter);
   app.use("/api/predictions", predictionsRouter);
   app.use("/api/leaderboard", leaderboardRouter);
+  app.use("/api/leaderboard/global", globalLeaderboardRouter);
   app.use("/api/rate-limit", rateLimitStatusRouter);
+  app.use("/api/quota/requests", quotaRequestsRouter);
   app.use("/api/notifications", notificationsRouter);
+  app.use("/api/webhooks", webhooksRouter);
   app.use("/api/users/health", usersHealthRouter);
   app.use("/api/users", socialRouter);
   app.use("/api/users", userPortfolioRouter);
@@ -124,12 +143,14 @@ export function createApp(): express.Express {
   app.use("/api/me/devices", devicesRouter);
   app.use("/api/me/sessions", sessionsRouter);
   app.use("/api/admin/audit", adminAuditRouter);
+  app.use("/api/admin/audit", adminAuditExportRouter);
   app.use("/api/admin/users", adminUsersRouter);
+  app.use("/api/admin/users", adminNotesRouter);
   app.use("/api/admin/feature-flags", adminFeatureFlagsRouter);
-  app.use('/feature-flags', featureFlagsRouter);
   app.use("/api/admin/markets", adminMarketsRouter);
   app.use("/api/admin/schema-versions", adminSchemaVersionsRouter);
   app.use("/api/admin/rate-limit", adminRateLimitInspectRouter);
+  app.use("/api/reports/scheduled", scheduledReportsRouter);
 
   app.get("/metrics", async (req, res) => {
     const metricsAuthToken = process.env.METRICS_AUTH_TOKEN;

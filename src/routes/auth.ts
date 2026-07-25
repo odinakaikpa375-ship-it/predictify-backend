@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { StrKey } from "@stellar/stellar-sdk";
+import { createPerUserRateLimiter } from "../middleware/rateLimit";
 import {
   rotateRefreshToken,
   revokeFamily,
@@ -8,8 +9,30 @@ import {
 import { createChallenge } from "../services/authChallengeService";
 import { verifyChallengeAndIssueJwt } from "../services/authVerifyService";
 import { RouteErrorFactory } from "../errors";
+import { conditionalGet } from "../middleware/etag";
+import { accessLog } from "../middleware/accessLog";
+import { requestTimeout } from "../middleware/timeout";
 
 export const authRouter = Router();
+authRouter.use(accessLog);
+authRouter.use(requestTimeout(15000));
+
+function getAuthRateLimitKey(req: { body?: unknown; socket?: { remoteAddress?: string | null } }): string {
+  const body = typeof req.body === "object" && req.body !== null ? req.body as Record<string, unknown> : undefined;
+  const stellarAddress = typeof body?.stellarAddress === "string" ? body.stellarAddress.trim() : "";
+
+  if (stellarAddress.length > 0) {
+    return `auth:${stellarAddress}`;
+  }
+
+  return `ip:${req.socket?.remoteAddress ?? "unknown"}`;
+}
+
+authRouter.use(createPerUserRateLimiter({
+  windowMs: 60 * 1000,
+  limit: 5,
+  keyGenerator: (req) => getAuthRateLimitKey(req),
+}));
 
 const refreshTokenBodySchema = z.object({
   refreshToken: z.string().min(1),
@@ -32,6 +55,8 @@ authRouter.post("/refresh", async (req, res, next) => {
     if (!result.ok) {
       throw result.error;
     }
+
+    if (conditionalGet(result.value, req, res)) return;
 
     res.json(result.value);
   } catch (err) {
@@ -81,10 +106,14 @@ authRouter.post("/challenge", async (req, res, next) => {
     }
 
     const result = await createChallenge(parsed.data.stellarAddress);
-    res.status(201).json({
+    const payload = {
       nonce: result.nonce,
       expiresAt: result.expiresAt.toISOString(),
-    });
+    };
+
+    if (conditionalGet(payload, req, res)) return;
+
+    res.status(201).json(payload);
   } catch (e) {
     next(e);
   }
@@ -115,6 +144,8 @@ authRouter.post("/verify", async (req, res, next) => {
     if (!result.ok) {
       throw result.error;
     }
+
+    if (conditionalGet(result.value, req, res)) return;
 
     res.status(200).json(result.value);
   } catch (e) {

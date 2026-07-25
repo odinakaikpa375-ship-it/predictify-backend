@@ -118,10 +118,12 @@ export const markets = pgTable("markets", {
   featuredAt: timestamp("featured_at", { withTimezone: true }),
   featuredBy: text("featured_by"),
   forceFinalized: boolean("force_finalized").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
 export const marketAuditLog = pgTable("market_audit_log", {
-  id: uuid("id").primaryKey().defaultRandom(),
   marketId: text("market_id")
     .notNull()
     .references(() => markets.id),
@@ -442,5 +444,87 @@ export const schemaVersions = pgTable(
 export type SchemaVersion = typeof schemaVersions.$inferSelect;
 export type NewSchemaVersion = typeof schemaVersions.$inferInsert;
 
+// ---------------------------------------------------------------------------
+// Quota Requests (user self-service quota increases)
+// ---------------------------------------------------------------------------
+
+/**
+ * quota_requests — user-submitted requests to increase their rate limits.
+ *
+ * Each row represents a single request from a user asking for a higher
+ * cap on a specific quota dimension (e.g. prediction_limit).  Admins
+ * review these and update status + review fields.
+ *
+ * `(user_id, status = 'pending')` is checked at creation time to enforce
+ * a per-user cap on concurrent pending requests (see MAX_PENDING_REQUESTS
+ * in the route layer).
+ */
+export const quotaRequests = pgTable(
+  "quota_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    quotaType: text("quota_type").notNull(),
+    requestedValue: integer("requested_value").notNull(),
+    reason: text("reason").notNull(),
+    status: text("status").notNull().default("pending"),
+    reviewedBy: text("reviewed_by"),
+    reviewNotes: text("review_notes"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    quotaRequestsUserIdIdx: index("quota_requests_user_id_idx").on(t.userId),
+    quotaRequestsStatusIdx: index("quota_requests_status_idx").on(t.status),
+  }),
+);
+
+export type QuotaRequest = typeof quotaRequests.$inferSelect;
+export type NewQuotaRequest = typeof quotaRequests.$inferInsert;
+
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Scheduled Reports
+// ---------------------------------------------------------------------------
+/**
+ * scheduled_reports — user-configured recurring report exports.
+ *
+ * Each row represents a single scheduled report configuration owned by a user.
+ * The scheduler runs these configurations according to their cron expressions.
+ */
+export const scheduledReports = pgTable(
+  "scheduled_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    reportType: text("report_type").notNull(),
+    schedule: text("schedule").notNull(),
+    format: text("format").notNull(),
+    filters: jsonb("filters").default({}),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    scheduledReportsUserIdIdx: index("scheduled_reports_user_id_idx").on(t.userId),
+    scheduledReportsActiveIdx: index("scheduled_reports_active_idx").on(t.active),
+  }),
+);
+
+export type ScheduledReport = typeof scheduledReports.$inferSelect;
+export type NewScheduledReport = typeof scheduledReports.$inferInsert;

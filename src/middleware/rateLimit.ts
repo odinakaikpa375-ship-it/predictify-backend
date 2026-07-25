@@ -153,6 +153,13 @@ export function createPerUserRateLimiter(options: Partial<Options> = {}): RateLi
     windowMs: 60 * 1000,
     limit: 60,
     ...options,
-    keyGenerator: (req: Request) => getAuthenticatedUserKey(req) ?? `ip:${getClientIp(req)}`,
+    keyGenerator: (req: Request) => {
+      const overrideKey = options.keyGenerator?.(req);
+      if (typeof overrideKey === "string" && overrideKey.trim().length > 0) {
+        return overrideKey;
+      }
+
+      return getAuthenticatedUserKey(req) ?? `ip:${getClientIp(req)}`;
+    },
   });
 }

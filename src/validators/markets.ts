@@ -4,9 +4,8 @@ import { z } from "zod";
  * Schema for GET /api/markets query parameters
  */
 export const listMarketsQuerySchema = z.object({
-  limit: z.coerce.number().int("Limit must be an integer").min(1, "Limit must be between 1 and 100").max(100, "Limit must be between 1 and 100").optional(),
-  offset: z.coerce.number().int("Offset must be an integer").min(0, "Offset must be non-negative").optional(),
-  page: z.coerce.number().int("Page must be an integer").min(1, "Page must be at least 1").optional(),
+  limit: z.coerce.number().int("Limit must be an integer").min(1, "Limit must be between 1 and 100").max(100, "Limit must be between 1 and 100").default(20),
+  cursor: z.string().optional(),
   status: z.string().trim().optional(),
   category: z.string().trim().optional(),
   tag: z.string().trim().optional(),
